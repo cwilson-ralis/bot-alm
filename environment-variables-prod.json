@@ -1,0 +1,8 @@
+{
+  "cr_ApiBaseUrl": "https://api.yourcompany.com",
+  "cr_ApiKey": "prod-api-key-value",
+  "cr_BotWelcomeMessage": "Welcome! How can I help you today?",
+  "cr_MaxRetryAttempts": "5",
+  "cr_EnableDebugLogging": "false",
+  "cr_NotificationEmail": "notifications@yourcompany.com"
+}

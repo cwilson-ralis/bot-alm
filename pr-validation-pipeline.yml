@@ -1,0 +1,75 @@
+# =============================================================================
+# Power Platform Build Pipeline (CI Only)
+# =============================================================================
+# This pipeline validates PRs by exporting and packing the solution
+# Runs on PR to main branch
+# =============================================================================
+
+trigger: none
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - src/solutions/**
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  - group: PowerPlatform-Common
+
+stages:
+  - stage: Validate
+    displayName: 'Validate Solution'
+    jobs:
+      - job: ValidateSolution
+        displayName: 'Export and Validate'
+        steps:
+          # Install Power Platform CLI
+          - task: PowerPlatformToolInstaller@2
+            displayName: 'Install Power Platform CLI'
+            inputs:
+              DefaultVersion: true
+
+          # Export Solution (validates it can be exported)
+          - task: PowerPlatformExportSolution@2
+            displayName: 'Export Retainer (Validation)'
+            inputs:
+              authenticationType: 'PowerPlatformSPN'
+              PowerPlatformSPN: 'PowerPlatform-Dev'
+              SolutionName: '$(SolutionName)'
+              SolutionOutputFile: '$(Build.ArtifactStagingDirectory)/$(SolutionName)_unmanaged.zip'
+              Managed: false
+              AsyncOperation: true
+              MaxAsyncWaitTime: '60'
+
+          # Check Solution
+          - task: PowerPlatformChecker@2
+            displayName: 'Solution Checker'
+            inputs:
+              authenticationType: 'PowerPlatformSPN'
+              PowerPlatformSPN: 'PowerPlatform-Dev'
+              FilesToAnalyze: '$(Build.ArtifactStagingDirectory)/$(SolutionName)_unmanaged.zip'
+              RuleSet: 'Solution Checker'
+            continueOnError: true  # Don't fail build on checker warnings
+
+          # Pack as Managed (validates it can be packaged)
+          - task: PowerPlatformExportSolution@2
+            displayName: 'Export Retainer (Managed Validation)'
+            inputs:
+              authenticationType: 'PowerPlatformSPN'
+              PowerPlatformSPN: 'PowerPlatform-Dev'
+              SolutionName: '$(SolutionName)'
+              SolutionOutputFile: '$(Build.ArtifactStagingDirectory)/$(SolutionName)_managed.zip'
+              Managed: true
+              AsyncOperation: true
+              MaxAsyncWaitTime: '60'
+
+          - script: |
+              echo "Solution validation completed successfully"
+              echo "Unmanaged: $(Build.ArtifactStagingDirectory)/$(SolutionName)_unmanaged.zip"
+              echo "Managed: $(Build.ArtifactStagingDirectory)/$(SolutionName)_managed.zip"
+            displayName: 'Validation Summary'

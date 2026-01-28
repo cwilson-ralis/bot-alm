@@ -1,0 +1,8 @@
+{
+  "cr_ApiBaseUrl": "https://api.uat.yourcompany.com",
+  "cr_ApiKey": "uat-api-key-value",
+  "cr_BotWelcomeMessage": "Welcome to the UAT environment! How can I help you today?",
+  "cr_MaxRetryAttempts": "3",
+  "cr_EnableDebugLogging": "true",
+  "cr_NotificationEmail": "uat-notifications@yourcompany.com"
+}
