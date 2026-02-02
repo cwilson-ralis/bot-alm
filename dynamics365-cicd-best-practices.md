@@ -293,6 +293,174 @@ During import, use the option to enable importing/activating plug-in steps and f
 
 ---
 
+## Handling Hotfixes
+
+Hotfixes in Dynamics 365/Dataverse require careful handling because you're dealing with managed solutions and the layering system.
+
+### Option 1: Patch Solutions (Built-in Mechanism)
+
+Dataverse supports **solution patches** — smaller, incremental updates that layer on top of a base solution.
+
+```bash
+pac solution create-patch --solution-name "YourSolution"
+```
+
+| Pros | Cons |
+|------|------|
+| Faster to build and deploy (only contains changed components) | Once you create a patch, you can't edit the base solution until you clone (roll up) |
+| Maintains solution layering integrity | Some component types don't patch well (use with caution for plug-ins) |
+| Can be rolled up into the base solution later with `pac solution clone --patchname` | Adds complexity to your solution history |
+
+**Best for:** Low-code component fixes (forms, views, business rules, flows)
+
+### Option 2: Fast-Track Pipeline with Full Solution (Recommended for Plug-ins)
+
+For plug-in hotfixes, a patch solution can be risky. Instead, use a **dedicated hotfix branch and expedited pipeline**.
+
+#### Branching Strategy
+
+```
+main (production)
+  └── hotfix/issue-12345    ← Branch from main, fix here
+        └── PR back to main ← Expedited review + deploy
+```
+
+#### Expedited Pipeline Example
+
+Create a separate pipeline (or pipeline stage) for hotfixes:
+
+```yaml
+# hotfix-pipeline.yml
+trigger:
+  branches:
+    include:
+      - hotfix/*
+
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildAndTest
+        steps:
+          - task: DotNetCoreCLI@2
+            displayName: 'Build Plugins'
+            inputs:
+              command: 'build'
+              projects: 'src/Plugins/**/*.csproj'
+          
+          - task: DotNetCoreCLI@2
+            displayName: 'Run Unit Tests'
+            inputs:
+              command: 'test'
+              projects: 'src/Tests/**/*.csproj'
+          
+          - task: PowerPlatformPackSolution@2
+            displayName: 'Pack Solution'
+            inputs:
+              SolutionSourceFolder: 'solutions/YourSolution'
+              SolutionOutputFile: '$(Build.ArtifactStagingDirectory)/YourSolution_managed.zip'
+              SolutionType: 'Managed'
+
+  - stage: DeployToUAT
+    dependsOn: Build
+    jobs:
+      - deployment: DeployUAT
+        environment: 'UAT'  # Manual approval gate here
+        
+  - stage: DeployToProd
+    dependsOn: DeployToUAT
+    jobs:
+      - deployment: DeployProd
+        environment: 'Production'  # Manual approval gate here
+```
+
+**Key differences from standard pipeline:**
+
+- Fewer quality gates (but keep unit tests — never skip those)
+- Pre-approved reviewers for expedited PR review
+- Manual approval gates at UAT and Prod (not automated promotion)
+- Solution Checker can be optional or warning-only
+
+### Option 3: Segmented Solutions (Proactive Strategy)
+
+If you anticipate frequent hotfixes, **segment your solutions** by volatility:
+
+```
+CoreSolution (stable, infrequent changes)
+  └── Tables, security roles, base plug-ins
+
+PluginsSolution (moderate change frequency)
+  └── All plug-in assemblies and steps
+
+UISolution (high change frequency)
+  └── Forms, views, sitemap, web resources
+
+IntegrationsSolution (varies)
+  └── Flows, connection references, environment variables
+```
+
+**Benefit:** You can hotfix just the `PluginsSolution` without touching the rest, reducing risk and deployment time.
+
+### Hotfix Process Checklist
+
+```
+□ Create hotfix branch from main (not develop)
+□ Make minimal, targeted fix only
+□ Increment solution version (required for plug-in changes)
+□ Run unit tests locally before PR
+□ PR with expedited review (designated approvers)
+□ Build pipeline produces managed artifact
+□ Deploy to UAT with manual approval
+□ Smoke test in UAT (verify fix, check for regressions)
+□ Deploy to Prod with manual approval
+□ Merge hotfix branch back to main AND develop
+□ Document in release notes / incident ticket
+```
+
+### Version Numbering for Hotfixes
+
+Use a consistent versioning scheme that distinguishes hotfixes:
+
+```
+Major.Minor.Patch.Hotfix
+
+Example:
+1.2.0.0  ← Standard release
+1.2.0.1  ← Hotfix 1
+1.2.0.2  ← Hotfix 2
+1.3.0.0  ← Next standard release (rolls up hotfixes)
+```
+
+In your `.cdsproj` or solution settings:
+
+```xml
+<PropertyGroup>
+  <SolutionVersion>1.2.0.1</SolutionVersion>
+</PropertyGroup>
+```
+
+### Hotfix Anti-Patterns
+
+| Anti-Pattern | Why It's Dangerous |
+|--------------|-------------------|
+| Edit directly in Prod | Unmanaged layers in Prod cause long-term pain |
+| Skip the pipeline entirely | Lose traceability, risk deploying untested code |
+| Deploy unmanaged to Prod "just this once" | Creates solution layer conflicts |
+| Forget to merge hotfix back | Next release overwrites your fix |
+| Skip version increment | `InvalidPluginAssemblyContent` error on import |
+
+### Emergency "Break Glass" Scenario
+
+If you have a true production-down emergency and can't wait for any pipeline:
+
+1. **Still use source control** — commit the fix, even if you deploy manually
+2. Use `pac solution import` directly from a secure workstation with service principal credentials
+3. **Immediately** run the fix through the standard pipeline afterward to ensure artifacts are in sync
+4. Document everything for post-incident review
+
+> **Warning:** This should be exceedingly rare. If you're doing this frequently, your pipeline is too slow and needs optimisation.
+
+---
+
 ## Additional Resources
 
 - [Microsoft Power Platform ALM Documentation](https://learn.microsoft.com/en-us/power-platform/alm/)
@@ -302,5 +470,5 @@ During import, use the option to enable importing/activating plug-in steps and f
 
 ---
 
-*Document Version: 1.0*
+*Document Version: 1.1*
 *Last Updated: February 2026*
